@@ -4,6 +4,7 @@
   "name": "monorepo",
   "scripts": {
     "clean": "del-cli ./packages/*/dist",
+    "prepare": "npm-run-all clean -p \"compile:* -- {@}\" --",
     "compile": "npm-run-all clean -p \"compile:* -- {@}\" --",
     "compile:commonjs": "cd packages/react-native-web && cross-env BABEL_ENV=commonjs babel --root-mode upward src --out-dir dist/cjs --ignore \"**/__tests__\"",
     "compile:es": "cd packages/react-native-web && babel --root-mode upward src --out-dir dist --ignore \"**/__tests__\"",
