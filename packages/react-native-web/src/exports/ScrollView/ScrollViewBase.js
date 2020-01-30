@@ -66,7 +66,9 @@ export default class ScrollViewBase extends React.Component<Props> {
   _viewRef: View;
 
   _debouncedOnScrollEnd = debounce(this._handleScrollEnd, 100);
-  _state = { isScrolling: false, scrollLastTick: 0 };
+  _state = { isScrolling: false, scrollLastTick: 0,
+             isTouching: false, isTouchScrolling: false,
+             wasTouchScrolling: false, didMomentumScrollStart: false };
 
   setNativeProps(props: Object) {
     if (this._viewRef) {
@@ -105,6 +107,8 @@ export default class ScrollViewBase extends React.Component<Props> {
         nativeID={nativeID}
         onLayout={onLayout}
         onScroll={this._handleScroll}
+        onTouchStart={this._handleTouchStart}
+        onTouchEnd={this._handleTouchEnd}
         onTouchMove={this._createPreventableScrollHandler(this.props.onTouchMove)}
         onWheel={this._createPreventableScrollHandler(this.props.onWheel)}
         pointerEvents={pointerEvents}
@@ -144,11 +148,46 @@ export default class ScrollViewBase extends React.Component<Props> {
       // Weren't scrolling, so we must have just started
       this._handleScrollStart(e);
     }
+    // If we continue getting scroll events after touch scrolling stopped,
+    // assume momentum scrolling is ongoing
+    if (this._state.wasTouchScrolling && !this._state.isTouchScrolling) {
+      // Only send out start event once. Flag gets reset in handleScrollEnd.
+      if (!this._state.didMomentumScrollStart) {
+        const { onMomentumScrollStart } = this.props;
+        if (onMomentumScrollStart) {
+          onMomentumScrollStart();
+        }
+        this._state.didMomentumScrollStart = true;
+      }
+    }
+  };
+
+  _handleTouchEnd = (e: Object) => {
+    const { onScrollEndDrag } = this.props;
+    if(this._state.isTouchScrolling) {
+      if (onScrollEndDrag) {
+        onScrollEndDrag();
+      }
+    }
+    this._state.isTouching = false;
+    this._state.isTouchScrolling = false;
+  };
+
+  _handleTouchStart = (e: Object) => {
+    this._state.isTouching = true;
   };
 
   _handleScrollStart(e: Object) {
     this._state.isScrolling = true;
     this._state.scrollLastTick = Date.now();
+    if (this._state.isTouching) {
+      this._state.isTouchScrolling = true;
+      this._state.wasTouchScrolling = true;
+      this._state.didMomentumScrollStart = false;
+      if (this.props.onScrollStartDrag) {
+        this.props.onScrollStartDrag();
+      }
+    }
   }
 
   _handleScrollTick(e: Object) {
@@ -161,9 +200,35 @@ export default class ScrollViewBase extends React.Component<Props> {
 
   _handleScrollEnd(e: Object) {
     const { onScroll } = this.props;
+
+    if (this._state.isTouchScrolling) {
+      // Drag scrolling ongoing but not moving, which caused the debounce to
+      // trigger a false 'end' event -> Igore it.
+      return;
+    }
+
     this._state.isScrolling = false;
     if (onScroll) {
       onScroll(normalizeScrollEvent(e));
+    }
+
+    if (this._state.wasTouchScrolling) {
+      // Drag scrolling already stopped after touchEnd event (and onScrollEndDrag has already
+      // been fired.) But momentum scrolling might have gone on for a while after this,
+      // so check if we need to send out an end envent now.
+      if (this._state.didMomentumScrollStart && this.props.onMomentumScrollEnd) {
+        this.props.onMomentumScrollEnd();
+      }
+      // Clear touch scrolling related flags
+      this._state.wasTouchScrolling = false;
+      this._state.didMomentumScrollStart = false;
+    }
+    else {
+      // Scroll was not combined with touch.
+      // FIXME: Should drag events actually be fired in this scenario? Seems wrong but useful.
+      if (this.props.onScrollEndDrag) {
+        this.props.onScrollEndDrag();
+      }
     }
   }
 
